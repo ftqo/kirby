@@ -1,4 +1,3 @@
 create database kirbydb
 create user kirbyuser
-create extension hstore in that database
-rename `configTemplate` to `config.yaml`
+rename `configTemplate` to `config.yaml` and populate the values

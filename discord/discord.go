@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"strconv"
 	"sync"
 
 	"github.com/disgoorg/disgo"
@@ -10,6 +11,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 
 	"github.com/ftqo/kirby/config"
@@ -20,19 +22,38 @@ func Run(ctx context.Context, wg *sync.WaitGroup, log *logrus.Logger, db databas
 	log.Info("running discord service")
 	defer wg.Done()
 
+	var sequence int
+	var sessionID string
+	s, err := db.GetKV(ctx, log, "session")
+	if err != nil {
+		log.Info("no sessionID or sequence detected: ", err)
+	} else {
+		log.Info("sessionID and sequence detected, attempting to resume")
+		sequence, err = strconv.Atoi(s["sequence"])
+		if err != nil {
+			log.Error("failed to convert sequence from type string to int: ", err)
+		}
+		sessionID = s["sessionID"]
+	}
+
 	client, err := disgo.New(config.Token,
 		bot.WithGatewayConfigOpts(
 			gateway.WithGatewayIntents(
 				discord.GatewayIntentGuildMembers,
 				discord.GatewayIntentGuilds,
 			),
-			// gateway.WithAutoReconnect(true),
-			// gateway.WithSequence(),
-			// gateway.WithSessionID(),
+			gateway.WithSequence(sequence),
+			gateway.WithSessionID(sessionID),
 		),
 		bot.WithCacheConfigOpts(cache.WithCacheFlags(cache.FlagsDefault)),
 		bot.WithEventListeners(&events.ListenerAdapter{
 			OnGuildMemberJoin: createOnGuildMemberJoin(ctx, log, db),
+			OnResumed: func(event *events.ResumedEvent) {
+				log.Info("resumed")
+			},
+			OnReady: func(event *events.ReadyEvent) {
+				log.Info("ready")
+			},
 		}),
 		bot.WithLogger(log),
 	)
@@ -47,6 +68,10 @@ func Run(ctx context.Context, wg *sync.WaitGroup, log *logrus.Logger, db databas
 	<-ctx.Done()
 
 	log.Info("gracefully shutting down discord service")
+	db.InsertKV(context.Background(), log, "session", map[string]string{
+		"sessionID": *client.Gateway().SessionID(),
+		"sequence":  strconv.Itoa(*client.Gateway().LastSequenceReceived()),
+	})
 
-	client.Close(ctx)
+	client.Gateway().CloseWithCode(context.Background(), websocket.CloseServiceRestart, "Restarting")
 }
