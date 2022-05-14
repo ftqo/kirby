@@ -1,0 +1,12 @@
+---
+api:
+  port:
+db:
+  host:
+  username:
+  password:
+  database:
+  port:
+discord:
+  testGuild:
+  token:
