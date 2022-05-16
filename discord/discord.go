@@ -11,14 +11,14 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/log"
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 
 	"github.com/ftqo/kirby/config"
 	"github.com/ftqo/kirby/database"
 )
 
-func Run(ctx context.Context, wg *sync.WaitGroup, log *logrus.Logger, db database.DB, config config.DiscordConfig) {
+func Run(ctx context.Context, wg *sync.WaitGroup, log log.Logger, db database.DB, config config.DiscordConfig) {
 	log.Info("running discord service")
 	defer wg.Done()
 
@@ -26,7 +26,7 @@ func Run(ctx context.Context, wg *sync.WaitGroup, log *logrus.Logger, db databas
 	var sessionID string
 	s, err := db.GetKV(ctx, log, "session")
 	if err != nil {
-		log.Info("no sessionID or sequence detected: ", err)
+		log.Warn("no sessionID or sequence detected")
 	} else {
 		log.Info("sessionID and sequence detected, attempting to resume")
 		sequence, err = strconv.Atoi(s["sequence"])
@@ -47,13 +47,7 @@ func Run(ctx context.Context, wg *sync.WaitGroup, log *logrus.Logger, db databas
 		),
 		bot.WithCacheConfigOpts(cache.WithCacheFlags(cache.FlagsDefault)),
 		bot.WithEventListeners(&events.ListenerAdapter{
-			OnGuildMemberJoin: createOnGuildMemberJoin(ctx, log, db),
-			OnResumed: func(event *events.ResumedEvent) {
-				log.Info("resumed")
-			},
-			OnReady: func(event *events.ReadyEvent) {
-				log.Info("ready")
-			},
+			OnGuildMemberJoin: createOnGuildMemberJoin(ctx, db),
 		}),
 		bot.WithLogger(log),
 	)
@@ -68,7 +62,7 @@ func Run(ctx context.Context, wg *sync.WaitGroup, log *logrus.Logger, db databas
 	<-ctx.Done()
 
 	log.Info("gracefully shutting down discord service")
-	db.InsertKV(context.Background(), log, "session", map[string]string{
+	db.UpsertKV(context.Background(), log, "session", map[string]string{
 		"sessionID": *client.Gateway().SessionID(),
 		"sequence":  strconv.Itoa(*client.Gateway().LastSequenceReceived()),
 	})

@@ -3,7 +3,7 @@ package config
 import (
 	_ "embed"
 
-	"github.com/sirupsen/logrus"
+	"github.com/disgoorg/log"
 	"gopkg.in/yaml.v2"
 )
 
@@ -33,7 +33,7 @@ type Config struct {
 	DiscordConfig `yaml:"discord"`
 }
 
-func GetConfig(log *logrus.Logger) Config {
+func GetConfig(log log.Logger) Config {
 	log.Info("getting config")
 	c := Config{}
 	err := yaml.Unmarshal(config, &c)

@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/disgoorg/log"
 	"github.com/golang/freetype/truetype"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/image/font"
 )
 
@@ -18,7 +18,7 @@ var (
 	Images map[string]image.Image
 )
 
-func LoadAssets(log *logrus.Logger) {
+func LoadAssets(log log.Logger) {
 	log.Info("loading assets into memory")
 	Images = make(map[string]image.Image)
 	Fonts = make(map[string]font.Face)

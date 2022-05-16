@@ -9,20 +9,19 @@ import (
 	"github.com/disgoorg/disgo/rest/route"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/ftqo/kirby/database"
-	"github.com/sirupsen/logrus"
 )
 
-func createOnGuildMemberJoin(ctx context.Context, log *logrus.Logger, db database.DB) func(*events.GuildMemberJoinEvent) {
-	log.Info("creating OnGuildMemberJoin function")
+func createOnGuildMemberJoin(ctx context.Context, db database.DB) func(*events.GuildMemberJoinEvent) {
 	return func(e *events.GuildMemberJoinEvent) {
+		log := e.Client().Logger()
 		g, ok := e.Client().Caches().Guilds().Get(e.GuildID)
 		if !ok {
-			log.Error("guild not in cache")
+			log.Error("guild %s not in cache", e.GuildID)
 			return
 		}
 		gw, err := db.GetGuildWelcome(ctx, log, e.GuildID.String())
 		if err != nil {
-			log.Error("failed to get guild welcome from database, retrying: ", err)
+			log.Warn("failed to get guild welcome from database: ", err)
 			// RETRY. THERE IS A CHANCE THE BOT JOINED A SERVER WHILE THE BOT WAS DOWN.
 			db.InsertGuild(ctx, log, e.GuildID.String())
 			gw, err = db.GetGuildWelcome(ctx, log, e.GuildID.String())

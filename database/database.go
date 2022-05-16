@@ -4,18 +4,18 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/disgoorg/log"
 	"github.com/ftqo/kirby/config"
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/sirupsen/logrus"
 )
 
 type DB struct {
 	pool *pgxpool.Pool
 }
 
-func OpenDB(ctx context.Context, log *logrus.Logger, c config.DBConfig) DB {
-	log.Info("opening database connection pool")
+func OpenDB(ctx context.Context, log log.Logger, c config.DBConfig) DB {
+	log.Debug("opening database connection pool")
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		c.Host, c.Port, c.Username, c.Password, c.Database)
 	p, err := pgxpool.Connect(ctx, dsn)
@@ -25,20 +25,20 @@ func OpenDB(ctx context.Context, log *logrus.Logger, c config.DBConfig) DB {
 	return DB{pool: p}
 }
 
-func (db DB) Close(log *logrus.Logger) {
+func (db DB) Close(log log.Logger) {
 	log.Info("gracefully closing database connection pool")
 	db.pool.Close()
 }
 
-func (db DB) InitDatabase(ctx context.Context, log *logrus.Logger) {
+func (db DB) InitDatabase(ctx context.Context, log log.Logger) {
 	log.Info("initializing database")
 	db.createHstoreExtension(ctx, log)
 	db.createGuildWelcomeTable(ctx, log)
 	db.createKVTable(ctx, log)
 }
 
-func (db DB) createHstoreExtension(ctx context.Context, log *logrus.Logger) {
-	log.Info("creating hstore extension if not exists")
+func (db DB) createHstoreExtension(ctx context.Context, log log.Logger) {
+	log.Debug("creating hstore extension if not exists")
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Panic("failed to acquire connection from pool: ", err)
@@ -52,8 +52,8 @@ func (db DB) createHstoreExtension(ctx context.Context, log *logrus.Logger) {
 	}
 }
 
-func (db DB) createGuildWelcomeTable(ctx context.Context, log *logrus.Logger) {
-	log.Info("creating guild_welcome table if not exists")
+func (db DB) createGuildWelcomeTable(ctx context.Context, log log.Logger) {
+	log.Debug("creating guild_welcome table if not exists")
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Panic("failed to acquire connection from pool: ", err)
@@ -74,8 +74,8 @@ func (db DB) createGuildWelcomeTable(ctx context.Context, log *logrus.Logger) {
 	}
 }
 
-func (db DB) createKVTable(ctx context.Context, log *logrus.Logger) {
-	log.Info("creating kv_store table if not exists")
+func (db DB) createKVTable(ctx context.Context, log log.Logger) {
+	log.Debug("creating kv_store table if not exists")
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Panic("failed to acquire connection from pool: ", err)
@@ -92,8 +92,8 @@ func (db DB) createKVTable(ctx context.Context, log *logrus.Logger) {
 	}
 }
 
-func (db DB) InsertKV(ctx context.Context, log *logrus.Logger, name string, kv map[string]string) {
-	log.Info("inserting key-value pair(s) into database")
+func (db DB) UpsertKV(ctx context.Context, log log.Logger, name string, kv map[string]string) {
+	log.Debug("inserting kv pair(s) for ", name)
 	hstore := &pgtype.Hstore{
 		Map:    make(map[string]pgtype.Text),
 		Status: pgtype.Present,
@@ -120,8 +120,8 @@ func (db DB) InsertKV(ctx context.Context, log *logrus.Logger, name string, kv m
 	}
 }
 
-func (db DB) GetKV(ctx context.Context, log *logrus.Logger, name string) (map[string]string, error) {
-	log.Info("getting key-value pair(s) from database")
+func (db DB) GetKV(ctx context.Context, log log.Logger, name string) (map[string]string, error) {
+	log.Debug("getting kv pair(s) for ", name)
 	hstore := pgtype.Hstore{}
 	kv := make(map[string]string)
 	conn, err := db.pool.Acquire(ctx)
@@ -148,8 +148,8 @@ func (db DB) GetKV(ctx context.Context, log *logrus.Logger, name string) (map[st
 	return kv, nil
 }
 
-func (db DB) InsertGuild(ctx context.Context, log *logrus.Logger, guildID string) {
-	log.Infof("inserting guild %s", guildID)
+func (db DB) InsertGuild(ctx context.Context, log log.Logger, guildID string) {
+	log.Debug("inserting guild ", guildID)
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Error("failed to acquire connection from pool: ", err)
@@ -166,8 +166,8 @@ func (db DB) InsertGuild(ctx context.Context, log *logrus.Logger, guildID string
 	}
 }
 
-func (db DB) DeleteGuild(ctx context.Context, log *logrus.Logger, guildID string) {
-	log.Infof("deleting guild %s", guildID)
+func (db DB) DeleteGuild(ctx context.Context, log log.Logger, guildID string) {
+	log.Debug("deleting guild ", guildID)
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Error("failed to acquire connection from pool: ", err)
@@ -181,14 +181,14 @@ func (db DB) DeleteGuild(ctx context.Context, log *logrus.Logger, guildID string
 	}
 }
 
-func (db DB) ResetGuild(ctx context.Context, log *logrus.Logger, guildID string) {
-	log.Infof("resetting guild %s", guildID)
+func (db DB) ResetGuild(ctx context.Context, log log.Logger, guildID string) {
+	log.Debugf("resetting guild %s", guildID)
 	db.DeleteGuild(ctx, log, guildID)
 	db.InsertGuild(ctx, log, guildID)
 }
 
-func (db DB) GetGuildWelcome(ctx context.Context, log *logrus.Logger, guildID string) (GuildWelcome, error) {
-	log.Infof("getting guild welcome for %s", guildID)
+func (db DB) GetGuildWelcome(ctx context.Context, log log.Logger, guildID string) (GuildWelcome, error) {
+	log.Debug("getting guild welcome for ", guildID)
 	gw := GuildWelcome{}
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
@@ -203,8 +203,8 @@ func (db DB) GetGuildWelcome(ctx context.Context, log *logrus.Logger, guildID st
 	return gw, err
 }
 
-func (db DB) SetGuildWelcomeChannel(ctx context.Context, log *logrus.Logger, guildID, channelID string) {
-	log.Infof("setting guild welcome channel for %s", guildID)
+func (db DB) SetGuildWelcomeChannel(ctx context.Context, log log.Logger, guildID, channelID string) {
+	log.Debug("setting guild welcome channel for ", guildID)
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Error("failed to acquire connection from pool: ", err)
@@ -218,8 +218,8 @@ func (db DB) SetGuildWelcomeChannel(ctx context.Context, log *logrus.Logger, gui
 	}
 }
 
-func (db DB) SetGuildWelcomeType(ctx context.Context, log *logrus.Logger, guildID, welcomeType string) {
-	log.Infof("setting guild welcome type for %s", guildID)
+func (db DB) SetGuildWelcomeType(ctx context.Context, log log.Logger, guildID, welcomeType string) {
+	log.Debug("setting guild welcome type for ", guildID)
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Error("failed to acquire connection from pool: ", err)
@@ -233,8 +233,8 @@ func (db DB) SetGuildWelcomeType(ctx context.Context, log *logrus.Logger, guildI
 	}
 }
 
-func (db DB) SetGuildWelcomeText(ctx context.Context, log *logrus.Logger, guildID, messageText string) {
-	log.Infof("setting guild welcome text for %s", guildID)
+func (db DB) SetGuildWelcomeText(ctx context.Context, log log.Logger, guildID, messageText string) {
+	log.Debug("setting guild welcome text for ", guildID)
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Error("failed to acquire connection from pool: ", err)
@@ -248,8 +248,8 @@ func (db DB) SetGuildWelcomeText(ctx context.Context, log *logrus.Logger, guildI
 	}
 }
 
-func (db DB) SetGuildWelcomeImage(ctx context.Context, log *logrus.Logger, guildID, image string) {
-	log.Infof("setting guild welcome image for %s", guildID)
+func (db DB) SetGuildWelcomeImage(ctx context.Context, log log.Logger, guildID, image string) {
+	log.Debug("setting guild welcome image for ", guildID)
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Error("failed to acquire connection from pool: ", err)
@@ -263,8 +263,8 @@ func (db DB) SetGuildWelcomeImage(ctx context.Context, log *logrus.Logger, guild
 	}
 }
 
-func (db DB) SetGuildWelcomeImageText(ctx context.Context, log *logrus.Logger, guildID, imageText string) {
-	log.Infof("setting guild welcome image text for %s", guildID)
+func (db DB) SetGuildWelcomeImageText(ctx context.Context, log log.Logger, guildID, imageText string) {
+	log.Debug("setting guild welcome image text for ", guildID)
 	conn, err := db.pool.Acquire(ctx)
 	if err != nil {
 		log.Error("failed to acquire connection from pool: ", err)
@@ -276,8 +276,4 @@ func (db DB) SetGuildWelcomeImageText(ctx context.Context, log *logrus.Logger, g
 	if err != nil {
 		log.Errorf("failed to execute %s: %v", statement, err)
 	}
-}
-
-func (db DB) UpsertSession(ctx context.Context, log *logrus.Logger, s Session) {
-
 }

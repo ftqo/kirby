@@ -13,9 +13,9 @@ import (
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/log"
 	"github.com/ftqo/kirby/assets"
 	"github.com/ftqo/kirby/database"
-	"github.com/sirupsen/logrus"
 
 	"github.com/anthonynsimon/bild/transform"
 	"github.com/fogleman/gg"
@@ -38,7 +38,7 @@ type welcomeMessageInfo struct {
 	members   int
 }
 
-func generateWelcomeMessage(ctx context.Context, log *logrus.Logger, gw database.GuildWelcome, wi welcomeMessageInfo) discord.MessageCreate {
+func generateWelcomeMessage(ctx context.Context, log log.Logger, gw database.GuildWelcome, wi welcomeMessageInfo) discord.MessageCreate {
 	log.Info("generating welcome message")
 	var msg discord.MessageCreate
 
