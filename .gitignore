@@ -1,5 +1,6 @@
 .vscode/
 .idea/
+go.work
 logs/
 kirby
 config/config.yaml
