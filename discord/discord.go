@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"database/sql"
 	"strconv"
 	"sync"
 
@@ -14,58 +15,102 @@ import (
 	"github.com/disgoorg/log"
 	"github.com/gorilla/websocket"
 
+	"github.com/ftqo/kirby/assets"
 	"github.com/ftqo/kirby/config"
-	"github.com/ftqo/kirby/database"
+	"github.com/ftqo/kirby/database/queries"
 )
 
-func Run(ctx context.Context, wg *sync.WaitGroup, log log.Logger, db database.DB, config config.DiscordConfig) {
+type kirby struct {
+	db     *sql.DB
+	assets *assets.Assets
+
+	commands map[string]command
+}
+
+func Run(ctx context.Context, wg *sync.WaitGroup, log log.Logger, config config.DiscordConfig, db *sql.DB, assets *assets.Assets) {
 	log.Info("running discord service")
 	defer wg.Done()
 
+	k := kirby{db: db, assets: assets}
+	q := queries.New(db)
+
+	// get and parse old session and sequence
 	var sequence int
 	var sessionID string
-	s, err := db.GetKV(ctx, log, "session")
+	dbSequence, err := q.GetV(ctx, "sequence")
 	if err != nil {
-		log.Warn("no sessionID or sequence detected")
-	} else {
+		log.Warnf("failed to get sequence from database: %v", err)
+	}
+	dbSessionID, err := q.GetV(ctx, "session")
+	if err != nil {
+		log.Warnf("failed to get session from database: %v", err)
+	}
+	if len(dbSequence) != 0 && len(dbSessionID) != 0 {
 		log.Info("sessionID and sequence detected, attempting to resume")
-		sequence, err = strconv.Atoi(s["sequence"])
+		sessionID = dbSessionID
+		sequence, err = strconv.Atoi(dbSequence)
 		if err != nil {
 			log.Error("failed to convert sequence from type string to int: ", err)
+			sessionID = ""
 		}
-		sessionID = s["sessionID"]
+	} else {
+		log.Warn("no sessionID and/or sequence detected")
 	}
 
+	// create bot client
 	client, err := disgo.New(config.Token,
 		bot.WithGatewayConfigOpts(
-			gateway.WithGatewayIntents(
-				discord.GatewayIntentGuildMembers,
-				discord.GatewayIntentGuilds,
+			gateway.WithIntents(
+				gateway.IntentGuildMembers,
+				gateway.IntentGuilds,
 			),
 			gateway.WithSequence(sequence),
 			gateway.WithSessionID(sessionID),
 		),
-		bot.WithCacheConfigOpts(cache.WithCacheFlags(cache.FlagsDefault)),
+		bot.WithCacheConfigOpts(cache.WithCacheFlags(cache.FlagGuilds), cache.WithGuildCachePolicy(cache.DefaultConfig().GuildCachePolicy)),
 		bot.WithEventListeners(&events.ListenerAdapter{
-			OnGuildMemberJoin: createOnGuildMemberJoin(ctx, db),
+			OnReady:                         k.onReady,
+			OnGuildMemberJoin:               k.onGuildMemberJoin,
+			OnApplicationCommandInteraction: k.onApplicationCommandInteractionCreate,
+			OnResumed:                       k.onResume,
 		}),
 		bot.WithLogger(log),
 	)
 	if err != nil {
-		log.Panic("failed to build disgo: ", err)
+		log.Panicf("failed to create disgo client: %v", err)
 	}
 
-	if err = client.ConnectGateway(ctx); err != nil {
-		log.Panic("failed to connect to gateway: ", err)
+	k.commands = k.getCommands()
+	commands := []discord.ApplicationCommandCreate{}
+	for _, c := range k.commands {
+		commands = append(commands, c.def)
+	}
+	_, err = client.Rest().SetGlobalCommands(client.ApplicationID(), commands)
+	if err != nil {
+		log.Panicf("failed to set application commands: %v", err)
+	}
+
+	err = client.OpenGateway(ctx)
+	if err != nil {
+		log.Panicf("failed to connect to gateway: %v", err)
 	}
 
 	<-ctx.Done()
 
 	log.Info("gracefully shutting down discord service")
-	db.UpsertKV(context.Background(), log, "session", map[string]string{
-		"sessionID": *client.Gateway().SessionID(),
-		"sequence":  strconv.Itoa(*client.Gateway().LastSequenceReceived()),
+	err = q.UpsertKV(context.Background(), queries.UpsertKVParams{
+		K: "session", V: *client.Gateway().SessionID(),
 	})
+	if err != nil {
+		log.Errorf("failed to insert session into database: %v", err)
+	}
+
+	err = q.UpsertKV(context.Background(), queries.UpsertKVParams{
+		K: "sequence", V: strconv.Itoa(*client.Gateway().LastSequenceReceived()),
+	})
+	if err != nil {
+		log.Errorf("failed to insert sequence into database: %v", err)
+	}
 
 	client.Gateway().CloseWithCode(context.Background(), websocket.CloseServiceRestart, "Restarting")
 }

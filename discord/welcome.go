@@ -15,21 +15,23 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/log"
 	"github.com/ftqo/kirby/assets"
-	"github.com/ftqo/kirby/database"
+	"github.com/ftqo/kirby/database/queries"
+	"github.com/golang/freetype/truetype"
 
 	"github.com/anthonynsimon/bild/transform"
 	"github.com/fogleman/gg"
 )
 
 const (
-	PfpSize = 256
-
-	width  = 848
-	height = 477
-	margin = 15
+	avatarSize = 256
+	width      = 848
+	height     = 477
+	margin     = 15
 )
 
-type welcomeMessageInfo struct {
+type welcome = queries.InsertWelcomeParams
+
+type welcomeReplace struct {
 	mention   string
 	nickname  string
 	username  string
@@ -38,22 +40,24 @@ type welcomeMessageInfo struct {
 	members   int
 }
 
-func generateWelcomeMessage(ctx context.Context, log log.Logger, gw database.GuildWelcome, wi welcomeMessageInfo) discord.MessageCreate {
-	log.Info("generating welcome message")
+func generateWelcomeMessage(log log.Logger, w welcome, wr welcomeReplace, a *assets.Assets) discord.MessageCreate {
+	log.Trace("generating welcome message")
 	var msg discord.MessageCreate
 
-	r := strings.NewReplacer("%mention%", wi.mention, "%nickname%", wi.nickname, "%username%", wi.username, "%guild%", wi.guildName)
-	gw.Text = r.Replace(gw.Text)
-	gw.ImageText = r.Replace(gw.ImageText)
+	r := strings.NewReplacer("%mention%", wr.mention, "%nickname%", wr.nickname,
+		"%username%", wr.username, "%guild%", wr.guildName, "%members%", strconv.Itoa(wr.members))
+	w.MessageText = r.Replace(w.MessageText)
+	w.ImageTitle = r.Replace(w.ImageTitle)
+	w.ImageSubtitle = r.Replace(w.ImageSubtitle)
 
-	msg.Content = gw.Text
+	msg.Content = w.MessageText
 
-	switch gw.Type {
+	switch w.MessageType {
 	case "embed":
 		log.Error("embedded welcome messages not implemented; sending plain")
 	case "image":
-		imageCtx := gg.NewContextForImage(assets.Images[gw.Image])
-		req, err := http.NewRequestWithContext(ctx, "GET", wi.avatarURL, nil)
+		imageCtx := gg.NewContextForImage(a.Images[w.ImageName])
+		req, err := http.NewRequestWithContext(context.Background(), "GET", wr.avatarURL, nil)
 		if err != nil {
 			log.Error("failed to generate request for user profile pic: ", err)
 		}
@@ -66,34 +70,42 @@ func generateWelcomeMessage(ctx context.Context, log log.Logger, gw database.Gui
 		if err != nil {
 			log.Error("failed to decode profile picture", err)
 		}
+
 		// resize if necessary
 		var pfp image.Image
-		if rawPfp.Bounds().Max.X != PfpSize {
-			pfp = image.Image(transform.Resize(rawPfp, PfpSize, PfpSize, transform.Linear))
+		if rawPfp.Bounds().Max.X != avatarSize {
+			pfp = image.Image(transform.Resize(rawPfp, avatarSize, avatarSize, transform.Linear))
 		} else {
 			pfp = rawPfp
 		}
+
 		// draw colored rectangle over image
-		imageCtx.SetColor(color.RGBA{52, 45, 50, 130})
+		imageCtx.SetColor(color.RGBA{50, 45, 50, 130})
 		imageCtx.DrawRectangle(margin, margin, width-(2*margin), height-(2*margin))
 		imageCtx.Fill()
-		imageCtx.ClearPath()
-		// draw outline circle and pfp
+
+		// draw outline circle
 		imageCtx.SetColor(color.White)
-		imageCtx.DrawCircle(width/2, height*(44.0/100.0), PfpSize/2+3)
+		imageCtx.DrawCircle(width/2, height*44/100, avatarSize/2+3)
 		imageCtx.SetLineWidth(5)
 		imageCtx.Stroke()
-		imageCtx.DrawCircle(width/2, height*(44.0/100.0), PfpSize/2)
+
+		// draw pfp in a circle
+		imageCtx.DrawCircle(width/2, height*44/100, avatarSize/2)
 		imageCtx.Clip()
-		imageCtx.DrawImage(pfp, width/2-PfpSize/2, height*44/100-PfpSize/2)
+		imageCtx.DrawImage(pfp, width/2-avatarSize/2, height*44/100-(avatarSize/2))
 		imageCtx.ResetClip()
+
 		// write title and subtitle
-		fontLarge := assets.Fonts["coolveticaLarge"]
-		fontSmall := assets.Fonts["coolveticaSmall"]
-		imageCtx.SetFontFace(fontLarge)
-		imageCtx.DrawStringAnchored(gw.ImageText, width/2, height*78/100, 0.5, 0.5)
-		imageCtx.SetFontFace(fontSmall)
-		imageCtx.DrawStringAnchored("member #"+strconv.Itoa(wi.members), width/2, height*85/100, 0.5, 0.5)
+		font := a.Fonts["coolvetica"]
+		face := truetype.NewFace(&font, &truetype.Options{Size: 40})
+		imageCtx.SetFontFace(face)
+		imageCtx.DrawStringAnchored(w.ImageTitle, width/2, height*78/100, 0.5, 0.5)
+		face = truetype.NewFace(&font, &truetype.Options{Size: 25})
+		imageCtx.SetFontFace(face)
+		imageCtx.DrawStringAnchored(w.ImageSubtitle, width/2, height*85/100, 0.5, 0.5)
+
+		// encode and add file to message
 		buf := bytes.Buffer{}
 		enc := png.Encoder{
 			CompressionLevel: png.NoCompression,
@@ -103,11 +115,23 @@ func generateWelcomeMessage(ctx context.Context, log log.Logger, gw database.Gui
 			log.Error("failed to encode image into bytes buffer")
 		}
 		f := &discord.File{
-			Name:   "welcome_" + wi.nickname + ".jpg",
+			Name:   "welcome_" + wr.nickname + ".jpg",
 			Reader: &buf,
 		}
 		msg.Files = append(msg.Files, f)
 	}
 
 	return msg
+}
+
+func defaultWelcome(gid string) welcome {
+	return welcome{
+		GuildID:       gid,
+		ChannelID:     "",
+		MessageType:   "image",
+		MessageText:   "hi %mention%, welcome to %guild% :)",
+		ImageName:     "original",
+		ImageTitle:    "%username% joined the server",
+		ImageSubtitle: "member #%members%",
+	}
 }

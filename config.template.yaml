@@ -1,0 +1,16 @@
+---
+api:
+  port:
+db:
+  host:
+  username:
+  password:
+  database:
+  port:
+discord:
+  token:
+log:
+  level: info # trace, debug, info, warn, error, fatal, panic
+  timestamp: 
+    format: 2006/01/02 15:04:05
+    full: true

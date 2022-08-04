@@ -1,3 +1,3 @@
-- create database kirbydb
 - create user kirbyuser
-- rename `configTemplate` to `config.yaml` and populate the values
+- create database kirbydb
+- duplicate `config.template.yaml`, call it `config.yaml` and populate the values

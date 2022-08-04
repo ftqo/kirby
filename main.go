@@ -14,23 +14,28 @@ import (
 )
 
 func main() {
-	// Concurrency !
 	wg := &sync.WaitGroup{}
 	ctx, _ := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
-	// Logging and config !
-	log := logger.GetLogger()
-	c := config.GetConfig(log)
+	c, err := config.GetConfig()
+	if err != nil {
+		panic("failed to get config at startup: " + err.Error())
+	}
+	log := logger.GetLogger(c.LogConfig)
 
-	// Database and assets !
-	db := database.OpenDB(ctx, log, c.DBConfig)
-	defer db.Close(log)
-	db.InitDatabase(ctx, log)
-	assets.LoadAssets(log)
+	db, err := database.Open(ctx, log, c.DBConfig)
+	if err != nil {
+		log.Fatalf("failed to open database at startup: %v", err)
+	}
+	defer db.Close()
 
-	// Services !
+	a, err := assets.GetAssets(log)
+	if err != nil {
+		log.Panicf("failed to get assets at startup: %v", err)
+	}
+
 	wg.Add(1)
-	go discord.Run(ctx, wg, log, db, c.DiscordConfig)
+	go discord.Run(ctx, wg, log, c.DiscordConfig, db, a)
 
 	wg.Wait()
 }

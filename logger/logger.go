@@ -7,6 +7,8 @@ import (
 
 	"github.com/disgoorg/log"
 	"github.com/sirupsen/logrus"
+
+	"github.com/ftqo/kirby/config"
 )
 
 type kirbyFormatter struct {
@@ -14,6 +16,7 @@ type kirbyFormatter struct {
 }
 
 func (kf *kirbyFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+	level := entry.Level.String()
 	var color int
 	switch entry.Level {
 	case logrus.TraceLevel:
@@ -33,15 +36,34 @@ func (kf *kirbyFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	default:
 		color = 32
 	}
-	return []byte(fmt.Sprintf("%s \x1B[1m\x1b[%d;1m%s\x1b[0m%s%s\n", entry.Time.Format(kf.TimestampFormat), color, strings.ToUpper(entry.Level.String()), strings.Repeat(" ", 7-len(strings.ToUpper(entry.Level.String()))), entry.Message)), nil
+	return []byte(fmt.Sprintf("\u001b[30;1m%s \x1b[%d;1m%s\x1b[0m%s%s\n", entry.Time.Format(kf.TimestampFormat), color, strings.ToUpper(level[:4]), "  ", entry.Message)), nil
 }
 
-func GetLogger() log.Logger {
+func GetLogger(c config.LogConfig) log.Logger {
 	log := logrus.New()
-	log.SetLevel(logrus.TraceLevel)
+
+	switch strings.ToLower(c.Level) {
+	case "trace":
+		log.SetLevel(logrus.TraceLevel)
+	case "debug":
+		log.SetLevel(logrus.DebugLevel)
+	case "info":
+		log.SetLevel(logrus.InfoLevel)
+	case "warn":
+		log.SetLevel(logrus.WarnLevel)
+	case "error":
+		log.SetLevel(logrus.ErrorLevel)
+	case "fatal":
+		log.SetLevel(logrus.FatalLevel)
+	case "panic":
+		log.SetLevel(logrus.PanicLevel)
+	default:
+		log.SetLevel(logrus.InfoLevel)
+	}
+
 	log.SetFormatter(&kirbyFormatter{logrus.TextFormatter{
-		TimestampFormat: "2006/01/02 15:04:05",
-		FullTimestamp:   true,
+		TimestampFormat: c.Timestamp.Format,
+		FullTimestamp:   c.Timestamp.Full,
 	}})
 	log.SetOutput(os.Stdout)
 	log.Info("logger initialized")
